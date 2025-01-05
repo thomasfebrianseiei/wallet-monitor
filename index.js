@@ -1,9 +1,11 @@
 const { ethers } = require("ethers");
+const fs = require("fs");
 require("dotenv").config();
 
 // Load environment variables
 const PRIVATE_KEYS = process.env.PRIVATE_KEYS.split(",");
 const EXCHANGE_WALLET = process.env.EXCHANGE_WALLET;
+const LOG_FILE = "transactions.log"; // Log file for transactions
 
 // RPC URLs
 const networks = {
@@ -12,14 +14,19 @@ const networks = {
     polygon: `https://polygon-mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`,
 };
 
-console.log(networks)
-// Minimum balance to trigger transfer (in Ether, BNB, or MATIC)
-const MIN_BALANCE =ethers.parseEther("0.001");
-console.log(`Minimum Balance: ${MIN_BALANCE.toString()}`);
+
+// Minimum balance to trigger transfer
+const MIN_BALANCE = ethers.parseEther("0.001");
+console.log(`Monitoring wallets with balance threshold: ${ethers.formatEther(MIN_BALANCE)} ETH/BNB/MATIC`);
 
 // Wallet instances
 const wallets = PRIVATE_KEYS.map(key => new ethers.Wallet(key));
-console.log(wallets)
+
+// Logging helper
+function logMessage(message) {
+    console.log(message);
+    fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} - ${message}\n`);
+}
 
 // Function to send funds
 async function sendFunds(network, walletIndex, balance) {
@@ -39,14 +46,14 @@ async function sendFunds(network, walletIndex, balance) {
         const gasPrice = await provider.getGasPrice();
         tx.gasPrice = gasPrice;
 
-        console.log(`Sending ${ethers.formatEther(sendAmount)} ${network} from ${signer.address}...`);
+        logMessage(`Sending ${ethers.formatEther(sendAmount)} ${network} from ${signer.address} to ${EXCHANGE_WALLET}`);
         const transaction = await signer.sendTransaction(tx);
 
-        console.log(`Transaction hash: ${transaction.hash}`);
+        logMessage(`Transaction sent. Hash: ${transaction.hash}`);
         await transaction.wait();
-        console.log("Transaction confirmed!");
+        logMessage(`Transaction confirmed for hash: ${transaction.hash}`);
     } catch (error) {
-        console.error(`Error sending funds from wallet ${walletIndex} on ${network}:`, error);
+        logMessage(`Error sending funds from wallet ${wallets[walletIndex].address} on ${network}: ${error.message}`);
     }
 }
 
@@ -59,13 +66,13 @@ async function monitorBalances() {
                 const balance = await provider.getBalance(wallet.address);
 
                 if (balance > MIN_BALANCE) {
-                    console.log(`Wallet ${wallet.address} has balance: ${ethers.formatEther(balance)} ${networkName}`);
+                    logMessage(`Wallet ${wallet.address} has balance: ${ethers.formatEther(balance)} on ${networkName}`);
                     await sendFunds(networkName, index, balance);
                 } else {
-                    console.log(`Wallet ${wallet.address} balance is below threshold on ${networkName}`);
+                    logMessage(`Wallet ${wallet.address} balance is below threshold on ${networkName}`);
                 }
             } catch (error) {
-                console.error(`Error checking balance for wallet ${wallet.address} on ${networkName}:`, error);
+                logMessage(`Error checking balance for wallet ${wallet.address} on ${networkName}: ${error.message}`);
             }
         }
     }
